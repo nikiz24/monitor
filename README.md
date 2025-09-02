@@ -14,7 +14,7 @@ A lightweight, high-performance metrics collection SDK for Go applications with 
 ## Installation
 
 ```bash
-go get github.com/yourorg/yourrepo/monitor
+go get github.com/nikiz24/monitor
 ```
 
 ## Quick Start
@@ -26,7 +26,7 @@ import (
     "log"
     "time"
     
-    "github.com/yourorg/yourrepo/monitor"
+    "github.com/nikiz24/monitor"
     "go.uber.org/zap"
 )
 
