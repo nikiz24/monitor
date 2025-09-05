@@ -185,6 +185,11 @@ func (c *LabeledCounterCollector) SetMaxSeries(n int) {
 	c.mutex.Unlock()
 }
 
+// ForceCleanup forces immediate cleanup regardless of time intervals
+func (c *LabeledCounterCollector) ForceCleanup() {
+	c.cleanup(time.Now())
+}
+
 // Inc increments a labeled counter
 func (c *LabeledCounterCollector) Inc(metricName string, labels ...string) {
 	key := formatKey(metricName, labels)
@@ -306,9 +311,11 @@ func (c *LabeledCounterCollector) Collect() []Metric {
 	}
 	c.mutex.RUnlock()
 
-	// Periodic cleanup
-	if (c.seriesTTL > 0 || c.maxSeries > 0) && time.Since(c.lastCleanup) >= c.cleanupInterval {
-		c.cleanup(now)
+	// Periodic cleanup - Force more frequent cleanup for memory protection
+	if c.seriesTTL > 0 || c.maxSeries > 0 {
+		if time.Since(c.lastCleanup) >= c.cleanupInterval || c.maxSeries > 0 && len(c.values) > c.maxSeries {
+			c.cleanup(now)
+		}
 	}
 
 	return metrics
@@ -317,7 +324,12 @@ func (c *LabeledCounterCollector) Collect() []Metric {
 func (c *LabeledCounterCollector) cleanup(now time.Time) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
+
+	initialCount := len(c.values)
 	c.lastCleanup = now
+
+	ttlCleaned := 0
+	maxSeriesCleaned := 0
 
 	// TTL cleanup
 	if c.seriesTTL > 0 {
@@ -325,6 +337,7 @@ func (c *LabeledCounterCollector) cleanup(now time.Time) {
 		for k, v := range c.values {
 			if v.lastUpdated.Load() < cutoff {
 				delete(c.values, k)
+				ttlCleaned++
 			}
 		}
 	}
@@ -345,7 +358,19 @@ func (c *LabeledCounterCollector) cleanup(now time.Time) {
 		excess := len(c.values) - c.maxSeries
 		for i := 0; i < excess; i++ {
 			delete(c.values, pairs[i].key)
+			maxSeriesCleaned++
 		}
+	}
+
+	finalCount := len(c.values)
+	if ttlCleaned > 0 || maxSeriesCleaned > 0 {
+		c.logger.Info("cleaned up metrics",
+			zap.String("collector", c.name),
+			zap.Int("initial_count", initialCount),
+			zap.Int("final_count", finalCount),
+			zap.Int("ttl_cleaned", ttlCleaned),
+			zap.Int("max_series_cleaned", maxSeriesCleaned),
+			zap.Int("max_series_limit", c.maxSeries))
 	}
 }
 
